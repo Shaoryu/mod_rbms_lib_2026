@@ -4,6 +4,11 @@
 #include "mbed.h"
 #include "CANManager.h"
 
+enum MotorType{
+    m2006,
+    m3508
+};
+
 class rbms : public CANReceiver{
     public:
         enum ControlMode {
@@ -38,10 +43,13 @@ class rbms : public CANReceiver{
         //角度制御時の目標角度を設定（単位：度）
         void set_target_angle(int id, float angle);
 
+        //角度/速度制御時の重力補償用トルクを設定
+        void set_FF_torque(int id, int torque);
+
         //現在のエンコーダー角度を 0度 としてリセットする
         void reset_angle(int id);
         // ギア比設定(減速比指定、0.0fでデフォルト設定)
-        void set_gear_raito(int id, float gear_raito);
+        void set_gear_ratio(int id, float gear_raito);
         /**
          * @brief 速度制御用PIDゲイン設定
          * @param kp 比例ゲイン
@@ -56,12 +64,12 @@ class rbms : public CANReceiver{
         // max_accel: 1秒間あたりの最大RPM変化量 (0.0fを指定すると制限なし)
         void set_accel_limit(int id, float max_accel);
         /**
-         * @brief 最大(最小)角度設定※最大=最小で範囲なし
+         * @brief 最大(最小)角度設定※最大=<最小で範囲なし
          * @param id ID
-         * @param max_angle 最大角度
-         * @param min_angle 最小角度
+         * @param max_angle 最大角度[deg]
+         * @param min_angle 最小角度[deg]
          */
-        void set_angle_limit(int id, float max_angle, float min_angle);
+        void set_angle_clamp(int id, float max_angle, float min_angle);
 
         bool handle_message(const CANMessage &msg) override;
         void spd_control();
@@ -69,7 +77,7 @@ class rbms : public CANReceiver{
         void rbms_read(CANMessage &msg, short *rotation,short *speed);
         
     private:
-
+        void initialize();
         void control_thread_entry();
         float pid_calculate(int id, float target, float current, float dt);
         float pos_pid_calculate(int id, float target, float current, float dt, float limit);
@@ -86,8 +94,11 @@ class rbms : public CANReceiver{
         float _target_angles[8];
         int _output_torques[8];
 
-        float _gear_raito[8];
-        
+        float _gear_ratio[8];
+        int _FF_torque[8]={};
+        float _max_angle[8],_min_angle[8];
+        bool _is_sngle_clamp=false;
+
         // ゲイン
         float _kp, _ki, _kd;             // 速度ループ用
         float _kp_p, _ki_p, _kd_p;       // 位置ループ用

@@ -14,6 +14,11 @@ rbms::rbms(CAN &can,bool motor_type,int motor_num)
         _kp_p = 4.5f; _ki_p = 0.0f; _kd_p = 0.25f;
         _motor_max = 10000;
     }
+    initialize();
+}
+
+
+void rbms::initialize(){
     for(int i = 0; i < 8; i++) {
         _control_modes[i] = SPD_MODE;
         _target_speeds[i] = 0;
@@ -32,10 +37,12 @@ rbms::rbms(CAN &can,bool motor_type,int motor_num)
         _pid_states[i].speed_limit_rpm = 0.0f;
         _pid_states[i].accel_limit_rpm_s = 0.0f;
         _pid_states[i].current_target_rpm = 0.0f;
+
+        set_gear_ratio(i, 0);
+        set_FF_torque(i, 0);
         
         _pid_states[i].timer.start();
 
-        set_gear_raito(i, 0);
     }
     if(_motor_num<=8){
         _can.frequency(1000000);
@@ -43,15 +50,16 @@ rbms::rbms(CAN &can,bool motor_type,int motor_num)
     }
 }
 
-void rbms::set_gear_raito(int id, float gear_raito){
+void rbms::set_gear_ratio(int id, float gear_raito){
     if (id < 0 || id >= _motor_num) return;
     _data_mutex.lock();
-    _gear_raito[id] = gear_raito==0 ? (_motor_type ? 19.2f:36.f) : gear_raito;
+    _gear_ratio[id] = gear_raito==0.f ? (_motor_type ? 19.2f:36.f) : gear_raito;
     _data_mutex.unlock();
 }
 
 void rbms::set_control_mode(int id, ControlMode mode) {
     if (id < 0 || id >= _motor_num) return;
+    if(mode==TRQ_MODE)_FF_torque[id]=0;//入れないと流石にバグる
     _data_mutex.lock();
     _control_modes[id] = mode;
     _pid_states[id].integral = 0;
@@ -120,6 +128,21 @@ void rbms::set_accel_limit(int id, float max_accel) {
     _data_mutex.unlock();
 }
 
+void rbms::set_angle_clamp(int id, float max_angle, float min_angle){
+    if (id < 0 || id >= _motor_num) return;
+    if (max_angle>min_angle){
+        _data_mutex.lock();
+        _is_sngle_clamp=true;
+        _max_angle[id]=max_angle;
+        _min_angle[id]=min_angle;
+        _data_mutex.unlock();
+    }else{
+        _data_mutex.lock();
+        _is_sngle_clamp=false;
+        _data_mutex.unlock();
+    }
+}
+
 float rbms::pid_calculate(int id, float target, float current, float dt) {
     float error = target - current;
     _pid_states[id].integral += (error + _pid_states[id].prev_err) * dt / 2.0f;
@@ -158,6 +181,7 @@ float rbms::pos_pid_calculate(int id, float target, float current, float dt, flo
 void rbms::spd_control() {
     _thread.start(callback(this, &rbms::control_thread_entry));
 }
+
 void rbms::control_thread_entry() {
     while (true) {
         _event_flags.wait_any(0x01); 
@@ -197,8 +221,8 @@ void rbms::control_thread_entry() {
                 short rot, raw_spd;
                 parse_can_data(id, local_msg, &rot, &raw_spd); 
                 
-                int final_out = 0;
-                float current_rpm = raw_spd / _gear_raito[id];
+                float final_out = 0;
+                float current_rpm = raw_spd / _gear_ratio[id];
                 
 
                 if (mode == POS_MODE || mode == SPD_MODE) {
@@ -270,12 +294,12 @@ void rbms::control_thread_entry() {
                     final_out = target_t;
                     _pid_states[id].current_target_rpm = current_rpm;
                 }
-
+                final_out += _FF_torque[id];
                 if (final_out > _motor_max) final_out = _motor_max;
                 else if (final_out < -_motor_max) final_out = -_motor_max;
 
                 _data_mutex.lock();
-                _output_torques[id] = final_out;
+                _output_torques[id] = (int)final_out;
                 _data_mutex.unlock();
             }
         }
@@ -318,13 +342,14 @@ void rbms::parse_can_data(int id, const CANMessage &msg, short *rotation, short 
 
     _pid_states[id].last_raw_angle = raw_angle;
 
-    float gear_ratio = _motor_type ? 19.2f : 36.0f;
-    _pid_states[id].accumulated_angle += ((float)diff / 8192.0f) * 360.0f / gear_ratio;
+    
+    _pid_states[id].accumulated_angle += ((float)diff / 8192.0f) * 360.0f / _gear_ratio[id];
 
     _data_mutex.unlock();
 
     *rotation = (short)(raw_angle / 8192.0f * 360.0f);
 }
+
 
 bool rbms::handle_message(const CANMessage &msg) {
     int id_idx = msg.id - 0x201;
