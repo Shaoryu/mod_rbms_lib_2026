@@ -2,21 +2,41 @@
 #include "mbed.h"
 #include <chrono>
 #include <cmath>
+#include <cstdlib>
 
-rbms::rbms(CAN &can,bool motor_type,int motor_num)
+rbms::rbms(CAN &can,bool* motor_type,int motor_num)
     : _can(can),_motor_type(motor_type),_motor_num(motor_num){
-    if (_motor_type) { // M3508
-        _kp = 35.0f; _ki = 50.0f; _kd = 0.0f;
-        _kp_p = 5.0f; _ki_p = 0.0f; _kd_p = 0.15f;
-        _motor_max = 16384;
-    } else { // M2006
-        _kp = 15.0f; _ki = 12.0f; _kd = 0.0f;
-        _kp_p = 4.5f; _ki_p = 0.0f; _kd_p = 0.25f;
-        _motor_max = 10000;
+    for(int id=0;id<_motor_num;id++){
+        if (_motor_type[id]) { // M3508
+            _kp = 35.0f; _ki = 50.0f; _kd = 0.0f;
+            _kp_p = 5.0f; _ki_p = 0.0f; _kd_p = 0.15f;
+            _motor_max[id] = 16384;
+        } else { // M2006
+            _kp = 15.0f; _ki = 12.0f; _kd = 0.0f;
+            _kp_p = 4.5f; _ki_p = 0.0f; _kd_p = 0.25f;
+            _motor_max[id] = 10000;
+        }
     }
     initialize();
 }
 
+rbms::rbms(CAN &can,bool motor_type,int motor_num)
+    : _can(can),_motor_num(motor_num){
+    _motor_type = (bool*)malloc(sizeof(bool) * 8);
+    for(int id=0;id<_motor_num;id++){
+        _motor_type[id]=motor_type;
+        if (_motor_type[id]) { // M3508
+            _kp = 35.0f; _ki = 50.0f; _kd = 0.0f;
+            _kp_p = 5.0f; _ki_p = 0.0f; _kd_p = 0.15f;
+            _motor_max[id] = 16384;
+        } else { // M2006
+            _kp = 15.0f; _ki = 12.0f; _kd = 0.0f;
+            _kp_p = 4.5f; _ki_p = 0.0f; _kd_p = 0.25f;
+            _motor_max[id] = 10000;
+        }
+    }
+    initialize();
+}
 
 void rbms::initialize(){
     for(int i = 0; i < 8; i++) {
@@ -59,8 +79,8 @@ void rbms::set_gear_ratio(int id, float gear_raito){
 
 void rbms::set_control_mode(int id, ControlMode mode) {
     if (id < 0 || id >= _motor_num) return;
-    if(mode==TRQ_MODE)_FF_torque[id]=0;//入れないと流石にバグる
     _data_mutex.lock();
+    if(mode==TRQ_MODE)_FF_torque[id]=0;//入れないと流石にバグる
     _control_modes[id] = mode;
     _pid_states[id].integral = 0;
     _pid_states[id].prev_err = 0;
@@ -128,17 +148,24 @@ void rbms::set_accel_limit(int id, float max_accel) {
     _data_mutex.unlock();
 }
 
+void rbms::set_FF_torque(int id, int torque) {
+    if (id < 0 || id >= _motor_num) return;
+    _data_mutex.lock();
+    _FF_torque[id]=torque;
+    _data_mutex.unlock();
+}
+
 void rbms::set_angle_clamp(int id, float max_angle, float min_angle){
     if (id < 0 || id >= _motor_num) return;
     if (max_angle>min_angle){
         _data_mutex.lock();
-        _is_sngle_clamp=true;
+        _is_angle_clamp[id]=true;
         _max_angle[id]=max_angle;
         _min_angle[id]=min_angle;
         _data_mutex.unlock();
     }else{
         _data_mutex.lock();
-        _is_sngle_clamp=false;
+        _is_angle_clamp[id]=false;
         _data_mutex.unlock();
     }
 }
@@ -147,7 +174,7 @@ float rbms::pid_calculate(int id, float target, float current, float dt) {
     float error = target - current;
     _pid_states[id].integral += (error + _pid_states[id].prev_err) * dt / 2.0f;
 
-    float integral_limit = _motor_max / (_ki > 0.0f ? _ki : 1.0f); 
+    float integral_limit = _motor_max[id] / (_ki > 0.0f ? _ki : 1.0f); 
     if (_pid_states[id].integral > integral_limit) {
         _pid_states[id].integral = integral_limit;
     } else if (_pid_states[id].integral < -integral_limit) {
@@ -223,6 +250,17 @@ void rbms::control_thread_entry() {
                 
                 float final_out = 0;
                 float current_rpm = raw_spd / _gear_ratio[id];
+                float current_angle = _pid_states[id].accumulated_angle;
+                if(_is_angle_clamp[id]){
+                    if(current_angle>_max_angle[id]){
+                        mode=POS_MODE;
+                        target_a=_max_angle[id];
+                    }else if (current_angle<_min_angle[id]) {
+                        mode=POS_MODE;
+                        target_a=_min_angle[id];
+                    }
+                }
+
                 
 
                 if (mode == POS_MODE || mode == SPD_MODE) {
@@ -235,12 +273,11 @@ void rbms::control_thread_entry() {
                     bool bypass_accel_limit = false;
 
                     if (mode == POS_MODE) {
-                        float current_angle = _pid_states[id].accumulated_angle;
                         float error_angle = target_a - current_angle;
                         float abs_error = std::fabs(error_angle);
-                        // printf(">speed:%f\n",current_rpm);
-                        // printf(">pos:%f\n",current_angle);
-                        // //printf(">dt:%f\n",dt);
+                        printf(">speed:%f\n",current_rpm);
+                        printf(">pos:%f\n",current_angle);
+                        //printf(">dt:%f\n",dt);
                         const float SETTLING_THRESHOLD = 25.0f; 
                         const float DEAD_BAND = 2.5f;
 
@@ -262,7 +299,7 @@ void rbms::control_thread_entry() {
 
                         } else if(abs_error > DEAD_BAND){
                             raw_target_rpm = pos_pid_calculate(id, target_a, current_angle, dt, limit);
-                            bypass_accel_limit = true; 
+                            bypass_accel_limit = true;
                         }else{
                             _pid_states[id].pos_prev_err = 0.0f; 
                             _pid_states[id].pos_integral = 0.0f; 
@@ -273,7 +310,7 @@ void rbms::control_thread_entry() {
                         raw_target_rpm = (float)target_s;
                     }
                     if (raw_target_rpm > limit) raw_target_rpm = limit;
-                    if (raw_target_rpm < -limit) raw_target_rpm = -limit;
+                    else if (raw_target_rpm < -limit) raw_target_rpm = -limit;
                     if (_pid_states[id].accel_limit_rpm_s > 0.0f && !bypass_accel_limit) {
                         float max_delta = _pid_states[id].accel_limit_rpm_s * dt;
                         
@@ -295,8 +332,8 @@ void rbms::control_thread_entry() {
                     _pid_states[id].current_target_rpm = current_rpm;
                 }
                 final_out += _FF_torque[id];
-                if (final_out > _motor_max) final_out = _motor_max;
-                else if (final_out < -_motor_max) final_out = -_motor_max;
+                if (final_out > _motor_max[id]) final_out = _motor_max[id];
+                else if (final_out < -_motor_max[id]) final_out = -_motor_max[id];
 
                 _data_mutex.lock();
                 _output_torques[id] = (int)final_out;
