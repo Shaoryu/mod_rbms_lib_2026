@@ -20,6 +20,7 @@ class rbms : public CANReceiver{
 
         rbms(CAN &can,bool motor_type,int motor_num);
         rbms(CAN &can,bool* motor_type,int motor_num);
+        virtual ~rbms(){}
 
         /**
          * @brief 指定したモーターの制御モードを切り替え
@@ -57,7 +58,7 @@ class rbms : public CANReceiver{
         void reset_angle(int id);
         void reset_angle();
         // ギア比設定(減速比指定、0.0fでデフォルト設定)
-        void set_gear_ratio(int id, float gear_raito);
+        virtual void set_gear_ratio(int id, float gear_raito);
         void set_gear_ratio(float gear_raito);
         /**
          * @brief 速度制御用PIDゲイン設定
@@ -88,13 +89,14 @@ class rbms : public CANReceiver{
         float get_rbms_deg(int id);
         float* get_rbms_deg();
 
-        bool handle_message(const CANMessage &msg) override;
+        virtual bool handle_message(const CANMessage &msg) override;
         void spd_control();
-        int rbms_send();
+        virtual int rbms_send();
         void rbms_read(CANMessage &msg, short *rotation,short *speed);
         
-    private:
+    protected:
         void initialize();
+        virtual void set_default_param();
         void control_thread_entry();
         float pid_calculate(int id, float target, float current, float dt);
         float pos_pid_calculate(int id, float target, float current, float dt, float limit);
@@ -157,6 +159,17 @@ class rbms : public CANReceiver{
         CANMessage _msg_buffer[8];
         uint8_t _new_data_mask;
 
+};
+
+class gm6020 : public rbms{
+    public:
+        using rbms::rbms;
+        ~gm6020(){}
+        void set_gear_ratio(int id, float gear_raito) override;
+        bool handle_message(const CANMessage &msg) override;
+        int rbms_send() override;
+    private:
+        void set_default_param() override;
 };
 
 #endif

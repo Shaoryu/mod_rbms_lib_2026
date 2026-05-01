@@ -25,20 +25,26 @@ rbms::rbms(CAN &can,bool motor_type,int motor_num)
     _motor_type = (bool*)malloc(sizeof(bool) * 8);
     for(int id=0;id<_motor_num;id++){
         _motor_type[id]=motor_type;
-        if (_motor_type[id]) { // M3508
-            _kp = 35.0f; _ki = 50.0f; _kd = 0.0f;
+    }
+    initialize();
+}
+
+void rbms::set_default_param(){
+    for(int id=0;id<_motor_num;id++){
+        if (_motor_type[id]) { // トルク//動きはする
+            _kp = 45.0f; _ki = 35.0f; _kd = 0.0f;
             _kp_p = 5.0f; _ki_p = 0.0f; _kd_p = 0.15f;
-            _motor_max[id] = 16384;
-        } else { // M2006
+            _motor_max[id] = 10000;
+        } else { // 速度(未実装)
             _kp = 15.0f; _ki = 12.0f; _kd = 0.0f;
             _kp_p = 4.5f; _ki_p = 0.0f; _kd_p = 0.25f;
             _motor_max[id] = 10000;
         }
     }
-    initialize();
 }
 
 void rbms::initialize(){
+    set_default_param();
     for(int i = 0; i < 8; i++) {
         _control_modes[i] = SPD_MODE;
         _target_speeds[i] = 0;
@@ -275,8 +281,8 @@ void rbms::control_thread_entry() {
                     if (mode == POS_MODE) {
                         float error_angle = target_a - current_angle;
                         float abs_error = std::fabs(error_angle);
-                        printf(">speed:%f\n",current_rpm);
-                        printf(">pos:%f\n",current_angle);
+                        // printf(">speed:%f\n",current_rpm);
+                        // printf(">pos:%f\n",current_angle);
                         //printf(">dt:%f\n",dt);
                         const float SETTLING_THRESHOLD = 25.0f; 
                         const float DEAD_BAND = 2.5f;
@@ -323,6 +329,12 @@ void rbms::control_thread_entry() {
                         }
                     } else {
                         _pid_states[id].current_target_rpm = raw_target_rpm;
+                    }
+                    if(id==0){
+                    //printf(">speed:%f\n",current_rpm);
+                    //printf(">pos:%f\n",current_angle);
+                    //printf(">dt:%f\n",dt);
+                    printf(">spd:%f\n>pos:%f\n>tar:%f\n",current_rpm,current_angle,raw_target_rpm);
                     }
                     //printf(">speed_set:%f\n",raw_target_rpm);
                     final_out = (int)pid_calculate(id, _pid_states[id].current_target_rpm, current_rpm, dt);
