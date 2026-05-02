@@ -41,7 +41,7 @@ class rbms : public CANReceiver{
         /**
          * @brief トルク制御時の目標トルクを設定
          * @param id モーターインデックス
-         * @param torque 出力トルク値 (M2006:±10000, M3508:±16384)
+         * @param torque 出力トルク値 (M2006:±10000, M3508:±16384, GM6020)
          */
         void set_target_torque(int id, int torque);
         void set_target_torque(int torque);
@@ -57,9 +57,11 @@ class rbms : public CANReceiver{
         //現在のエンコーダー角度を 0度 としてリセットする
         void reset_angle(int id);
         void reset_angle();
+
         // ギア比設定(減速比指定、0.0fでデフォルト設定)
         virtual void set_gear_ratio(int id, float gear_raito);
         void set_gear_ratio(float gear_raito);
+
         /**
          * @brief 速度制御用PIDゲイン設定
          * @param kp 比例ゲイン
@@ -71,14 +73,16 @@ class rbms : public CANReceiver{
         // 角度制御用（外側ループ）PIDゲイン設定
         void set_pos_pid_gains(int id, float kp, float ki, float kd);
         void set_pos_pid_gains(float kp, float ki, float kd);
+
         // max_speed: 最大RPM (0.0fを指定するとデフォルト動作に戻る)
         void set_speed_limit(int id, float max_speed);
         void set_speed_limit(float max_speed);
         // max_accel: 1秒間あたりの最大RPM変化量 (0.0fを指定すると制限なし)
         void set_accel_limit(int id, float max_accel);
         void set_accel_limit(float max_accel);
+
         /**
-         * @brief 最大(最小)角度設定※最大=<最小で範囲なし
+         * @brief 最大(最小)角度設定※最大=<最小で範囲なし、26/5/2現在動作が不安定
          * @param id ID
          * @param max_angle 最大角度[deg]
          * @param min_angle 最小角度[deg]
@@ -118,9 +122,15 @@ class rbms : public CANReceiver{
         float _max_angle[8],_min_angle[8];
         bool _is_angle_clamp[8]={false};
 
-        // ゲイン
-        float _kp, _ki, _kd;             // 速度ループ用
-        float _kp_p, _ki_p, _kd_p;       // 位置ループ用
+
+        struct PIDgain {
+            float _kp;// 速度ループ用
+            float _ki;
+            float _kd;
+            float _kp_p;// 位置ループ用
+            float _ki_p;
+            float _kd_p;
+        } _pid_gains[8]={};
 
         Thread _thread;
         Mutex _data_mutex;
@@ -146,14 +156,6 @@ class rbms : public CANReceiver{
             Timer timer;
         } _pid_states[8]={};
 
-        struct PIDgain {
-            float kp;
-            float ki;
-            float kd;
-            float kp_p;
-            float ki_p;
-            float kd_p;
-        } _pid_gains[8]={};
 
         CANMessage _tx_msg_low, _tx_msg_high;
         CANMessage _msg_buffer[8];

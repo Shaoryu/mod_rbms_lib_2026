@@ -3,13 +3,13 @@
 void gm6020::set_default_param(){
     for(int id=0;id<_motor_num;id++){
         if (_motor_type[id]) { // トルク//動きはする
-            _kp = 45.0f; _ki = 35.0f; _kd = 0.0f;
-            _kp_p = 5.0f; _ki_p = 0.0f; _kd_p = 0.15f;
-            _motor_max[id] = 10000;
-        } else { // 速度(未実装)
-            _kp = 15.0f; _ki = 12.0f; _kd = 0.0f;
-            _kp_p = 4.5f; _ki_p = 0.0f; _kd_p = 0.25f;
-            _motor_max[id] = 10000;
+            _pid_gains[id]._kp = 45.0f; _pid_gains[id]._ki = 35.0f; _pid_gains[id]._kd = 0.0f;
+            _pid_gains[id]._kp_p = 5.0f; _pid_gains[id]._ki_p = 0.0f; _pid_gains[id]._kd_p = 0.15f;
+            _motor_max[id] = 16384;
+        } else { // 速度(未実装→別クラスのほうがいい？)
+            //_kp = 15.0f; _ki = 12.0f; _kd = 0.0f;//最初から角速度指定なので初期値(0)のまま
+            _pid_gains[id]._kp_p = 4.5f; _pid_gains[id]._ki_p = 0.0f; _pid_gains[id]._kd_p = 0.25f;
+            _motor_max[id] = 25000;
         }
     }
 }
@@ -23,7 +23,7 @@ void gm6020::set_gear_ratio(int id, float gear_raito){
 
 int gm6020::rbms_send() {
     _tx_msg_low.id = 0x1fe; _tx_msg_low.len = 8;
-    _tx_msg_high.id = 0x1ff; _tx_msg_high.len = 8;
+    _tx_msg_high.id = 0x2fe; _tx_msg_high.len = 8;
     _data_mutex.lock();
     for(int i = 0; i < _motor_num; i++) {
         int val = _output_torques[i];

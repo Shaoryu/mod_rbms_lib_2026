@@ -6,38 +6,30 @@
 
 rbms::rbms(CAN &can,bool* motor_type,int motor_num)
     : _can(can),_motor_type(motor_type),_motor_num(motor_num){
-    for(int id=0;id<_motor_num;id++){
-        if (_motor_type[id]) { // M3508
-            _kp = 35.0f; _ki = 50.0f; _kd = 0.0f;
-            _kp_p = 5.0f; _ki_p = 0.0f; _kd_p = 0.15f;
-            _motor_max[id] = 16384;
-        } else { // M2006
-            _kp = 15.0f; _ki = 12.0f; _kd = 0.0f;
-            _kp_p = 4.5f; _ki_p = 0.0f; _kd_p = 0.25f;
-            _motor_max[id] = 10000;
-        }
-    }
+
     initialize();
 }
 
 rbms::rbms(CAN &can,bool motor_type,int motor_num)
     : _can(can),_motor_num(motor_num){
+
     _motor_type = (bool*)malloc(sizeof(bool) * 8);
     for(int id=0;id<_motor_num;id++){
         _motor_type[id]=motor_type;
     }
+    
     initialize();
 }
 
 void rbms::set_default_param(){
     for(int id=0;id<_motor_num;id++){
-        if (_motor_type[id]) { // トルク//動きはする
-            _kp = 45.0f; _ki = 35.0f; _kd = 0.0f;
-            _kp_p = 5.0f; _ki_p = 0.0f; _kd_p = 0.15f;
-            _motor_max[id] = 10000;
-        } else { // 速度(未実装)
-            _kp = 15.0f; _ki = 12.0f; _kd = 0.0f;
-            _kp_p = 4.5f; _ki_p = 0.0f; _kd_p = 0.25f;
+        if (_motor_type[id]) { // M3508
+            _pid_gains[id]._kp = 35.0f; _pid_gains[id]._ki = 50.0f; _pid_gains[id]._kd = 0.0f;
+            _pid_gains[id]._kp_p = 5.0f; _pid_gains[id]._ki_p = 0.0f; _pid_gains[id]._kd_p = 0.15f;
+            _motor_max[id] = 16384;
+        } else { // M2006
+            _pid_gains[id]._kp = 15.0f; _pid_gains[id]._ki = 12.0f; _pid_gains[id]._kd = 0.0f;
+            _pid_gains[id]._kp_p = 4.5f; _pid_gains[id]._ki_p = 0.0f; _pid_gains[id]._kd_p = 0.25f;
             _motor_max[id] = 10000;
         }
     }
@@ -124,20 +116,32 @@ void rbms::reset_angle(int id) {
     _data_mutex.unlock();
 }
 
-void rbms::set_pid_gains(float kp, float ki, float kd) {
+void rbms::set_pid_gains(int id, float kp, float ki, float kd){
     _data_mutex.lock();
-    _kp = kp;
-    _ki = ki;
-    _kd = kd;
+    _pid_gains[id]._kp = kp;
+    _pid_gains[id]._ki = ki;
+    _pid_gains[id]._kd = kd;
+    _data_mutex.unlock();
+}
+
+void rbms::set_pid_gains(float kp, float ki, float kd) {
+    for(int id=0;id<_motor_num;id++){
+        set_pid_gains(id, kp, ki, kd);
+    }
+}
+
+void rbms::set_pos_pid_gains(int id, float kp, float ki, float kd){
+    _data_mutex.lock();
+    _pid_gains[id]._kp_p = kp;
+    _pid_gains[id]._ki_p = ki;
+    _pid_gains[id]._kd_p = kd;
     _data_mutex.unlock();
 }
 
 void rbms::set_pos_pid_gains(float kp, float ki, float kd) {
-    _data_mutex.lock();
-    _kp_p = kp;
-    _ki_p = ki;
-    _kd_p = kd;
-    _data_mutex.unlock();
+    for(int id=0;id<_motor_num;id++){
+        set_pos_pid_gains(id, kp, ki, kd);
+    }
 }
 
 void rbms::set_speed_limit(int id, float max_speed) {
@@ -176,11 +180,17 @@ void rbms::set_angle_clamp(int id, float max_angle, float min_angle){
     }
 }
 
+void rbms::set_angle_clamp(float max_angle, float min_angle){
+    for (int id; id<_motor_num; id++) {
+        set_angle_clamp(id, max_angle, min_angle);
+    }
+}
+
 float rbms::pid_calculate(int id, float target, float current, float dt) {
     float error = target - current;
     _pid_states[id].integral += (error + _pid_states[id].prev_err) * dt / 2.0f;
 
-    float integral_limit = _motor_max[id] / (_ki > 0.0f ? _ki : 1.0f); 
+    float integral_limit = _motor_max[id] / (_pid_gains[id]._ki > 0.0f ? _pid_gains[id]._ki : 1.0f); 
     if (_pid_states[id].integral > integral_limit) {
         _pid_states[id].integral = integral_limit;
     } else if (_pid_states[id].integral < -integral_limit) {
@@ -188,7 +198,7 @@ float rbms::pid_calculate(int id, float target, float current, float dt) {
     }
 
     float derivative = (error - _pid_states[id].prev_err) / dt;
-    float output = (_kp * error) + (_ki * _pid_states[id].integral) + (_kd * derivative);
+    float output = (_pid_gains[id]._kp * error) + (_pid_gains[id]._ki * _pid_states[id].integral) + (_pid_gains[id]._kd * derivative);
     _pid_states[id].prev_err = error;
     return output;
 }
@@ -197,7 +207,7 @@ float rbms::pos_pid_calculate(int id, float target, float current, float dt, flo
     float error = target - current;
     _pid_states[id].pos_integral += (error + _pid_states[id].pos_prev_err) * dt / 2.0f;
 
-    float integral_limit = limit / (_ki_p > 0.0f ? _ki_p : 1.0f); 
+    float integral_limit = limit / (_pid_gains[id]._ki_p > 0.0f ? _pid_gains[id]._ki_p : 1.0f); 
     if (_pid_states[id].pos_integral > integral_limit) {
         _pid_states[id].pos_integral = integral_limit;
     } else if (_pid_states[id].pos_integral < -integral_limit) {
@@ -205,7 +215,7 @@ float rbms::pos_pid_calculate(int id, float target, float current, float dt, flo
     }
 
     float derivative = (error - _pid_states[id].pos_prev_err) / dt;
-    float out_target_speed = (_kp_p * error) + (_ki_p * _pid_states[id].pos_integral) + (_kd_p * derivative);
+    float out_target_speed = (_pid_gains[id]._kp_p * error) + (_pid_gains[id]._ki_p * _pid_states[id].pos_integral) + (_pid_gains[id]._kd_p * derivative);
     _pid_states[id].pos_prev_err = error;
     
     return out_target_speed;
@@ -331,12 +341,11 @@ void rbms::control_thread_entry() {
                         _pid_states[id].current_target_rpm = raw_target_rpm;
                     }
                     if(id==0){
-                    //printf(">speed:%f\n",current_rpm);
-                    //printf(">pos:%f\n",current_angle);
-                    //printf(">dt:%f\n",dt);
-                    printf(">spd:%f\n>pos:%f\n>tar:%f\n",current_rpm,current_angle,raw_target_rpm);
+                        //printf(">speed:%f\n",current_rpm);
+                        //printf(">pos:%f\n",current_angle);
+                        //printf(">dt:%f\n",dt);
+                        printf(">spd:%f\n>pos:%f\n>tar:%f\n",current_rpm,current_angle,raw_target_rpm);
                     }
-                    //printf(">speed_set:%f\n",raw_target_rpm);
                     final_out = (int)pid_calculate(id, _pid_states[id].current_target_rpm, current_rpm, dt);
 
                 } else {
