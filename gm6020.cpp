@@ -9,7 +9,7 @@ void gm6020::set_default_param(){
         } else { // 速度(未実装→別クラスのほうがいい？)
             //_kp = 15.0f; _ki = 12.0f; _kd = 0.0f;//最初から角速度指定なので初期値(0)のまま
             _pid_gains[id]._kp_p = 4.5f; _pid_gains[id]._ki_p = 0.0f; _pid_gains[id]._kd_p = 0.25f;
-            _motor_max[id] = 25000;
+            _motor_max[id] = 26000;
         }
     }
 }
