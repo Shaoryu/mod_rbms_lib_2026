@@ -97,6 +97,8 @@ class rbms : public CANReceiver{
         void spd_control();
         virtual int rbms_send();
         void rbms_read(CANMessage &msg, short *rotation,short *speed);
+
+        void set_debug(int id=0,bool is_debug=true);
         
     protected:
         void initialize();
@@ -121,6 +123,10 @@ class rbms : public CANReceiver{
         int _FF_torque[8]={};
         float _max_angle[8],_min_angle[8];
         bool _is_angle_clamp[8]={false};
+
+
+        bool _is_debug=false;
+        int _debug_id=0;
 
 
         struct PIDgain {

@@ -340,11 +340,13 @@ void rbms::control_thread_entry() {
                     } else {
                         _pid_states[id].current_target_rpm = raw_target_rpm;
                     }
-                    if(id==0){
-                        //printf(">speed:%f\n",current_rpm);
-                        //printf(">pos:%f\n",current_angle);
-                        //printf(">dt:%f\n",dt);
-                        printf(">spd:%f\n>pos:%f\n>tar:%f\n",current_rpm,current_angle,raw_target_rpm);
+                    if(_is_debug){
+                        if (id==_debug_id) {//諸事情でネストが深いです
+                            //printf(">speed:%f\n",current_rpm);
+                            //printf(">pos:%f\n",current_angle);
+                            //printf(">dt:%f\n",dt);
+                            printf(">spd:%f\n>pos:%f\n>tar:%f\n",current_rpm,current_angle,raw_target_rpm);
+                        }
                     }
                     final_out = (int)pid_calculate(id, _pid_states[id].current_target_rpm, current_rpm, dt);
 
@@ -420,4 +422,13 @@ bool rbms::handle_message(const CANMessage &msg) {
         return true;
     }
     return false;
+}
+
+
+void rbms::set_debug(int id,bool is_debug){
+    if (id < 0 || id >= _motor_num) return;
+    _data_mutex.lock();
+    _debug_id = id;
+    _is_debug = is_debug;
+    _data_mutex.unlock();
 }
