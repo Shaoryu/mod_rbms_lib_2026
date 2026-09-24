@@ -92,6 +92,7 @@ class rbms : public CANReceiver{
 
         float get_rbms_deg(int id);
         float* get_rbms_deg();
+        int get_torque(int id);
 
         virtual bool handle_message(const CANMessage &msg) override;
         void spd_control();

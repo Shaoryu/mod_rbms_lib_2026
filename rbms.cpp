@@ -432,3 +432,8 @@ void rbms::set_debug(int id,bool is_debug){
     _is_debug = is_debug;
     _data_mutex.unlock();
 }
+
+int rbms::get_torque(int id){
+    if (id < 0 || id >= _motor_num) return -std::numeric_limits<int>::max();
+    return _output_torques[id];
+}
