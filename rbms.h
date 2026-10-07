@@ -90,8 +90,8 @@ class rbms : public CANReceiver{
         void set_angle_clamp(int id, float max_angle, float min_angle);
         void set_angle_clamp(float max_angle, float min_angle);
 
-        float get_rbms_deg(int id);
-        float* get_rbms_deg();
+        float get_current_angle(int id);
+        float* get_current_angle();
         int get_torque(int id);
 
         virtual bool handle_message(const CANMessage &msg) override;

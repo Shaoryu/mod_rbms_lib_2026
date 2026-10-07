@@ -437,3 +437,8 @@ int rbms::get_torque(int id){
     if (id < 0 || id >= _motor_num) return -std::numeric_limits<int>::max();
     return _output_torques[id];
 }
+
+float rbms::get_current_angle(int id){
+    CriticalSectionLock lock;
+    return _pid_states[id].accumulated_angle;
+}
